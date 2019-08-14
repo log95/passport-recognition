@@ -1,0 +1,123 @@
+version: '2'
+
+networks:
+  default:
+    driver: bridge
+
+services:
+
+  yii2-app:
+    build:
+      context: ./web
+    ports:
+      - "80:80"
+    networks:
+      - default
+    depends_on:
+      - yii2-db
+      - queue
+    environment:
+      QUEUE_SERVER_HOST: queue
+      QUEUE_SERVER_PORT: 5672
+      QUEUE_SERVER_USERNAME: ${QUEUE_SERVER_USERNAME}
+      QUEUE_SERVER_PASSWORD: ${QUEUE_SERVER_PASSWORD}
+      DB_NAME: ${WEB_DB_NAME}
+      DB_USERNAME: ${WEB_DB_USERNAME}
+      DB_PASSWORD: ${WEB_DB_PASSWORD}
+      USER_ADMIN_PASSWORD: ${WEB_USER_ADMIN_PASSWORD}
+
+    volumes:
+      - "./web/yii2:/var/www/app"
+      - "./web/nginx:/etc/nginx/sites-available"
+
+  yii2-db:
+    image: mysql:5.7.16
+    command: --default-authentication-plugin=mysql_native_password
+    networks:
+      - default
+    expose:
+      - "3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${WEB_DB_PASSWORD}
+      MYSQL_DATABASE: ${WEB_DB_NAME}
+    volumes:
+      - "./web/db:/var/lib/mysql"
+
+  queue:
+    image: rabbitmq:management
+    networks:
+      - default
+    expose:
+      - "5672"
+    ports:
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${QUEUE_SERVER_USERNAME}
+      RABBITMQ_DEFAULT_PASS: ${QUEUE_SERVER_PASSWORD}
+
+  opencv:
+    build:
+      context: ./opencv
+    networks:
+      - default
+    depends_on:
+      - queue
+    stdin_open: true
+    tty: true
+    environment:
+      QUEUE_SERVER_HOST: queue
+      QUEUE_SERVER_PORT: 5672
+      QUEUE_SERVER_USERNAME: ${QUEUE_SERVER_USERNAME}
+      QUEUE_SERVER_PASSWORD: ${QUEUE_SERVER_PASSWORD}
+    volumes:
+      - "./opencv/scripts:/app/scripts"
+
+  tesseract:
+    build:
+      context: ./tesseract
+    networks:
+      - default
+    depends_on:
+      - queue
+    stdin_open: true
+    tty: true
+    environment:
+      QUEUE_SERVER_HOST: queue
+      QUEUE_SERVER_PORT: 5672
+      QUEUE_SERVER_USERNAME: ${QUEUE_SERVER_USERNAME}
+      QUEUE_SERVER_PASSWORD: ${QUEUE_SERVER_PASSWORD}
+    volumes:
+      - "./tesseract/scripts:/app/scripts"
+
+  analysis-db:
+    build:
+      context: ./fio-analysis/db
+    networks:
+      - default
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8 --collation-server=utf8_general_ci
+    expose:
+      - "3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${ANALYSIS_DB_PASSWORD}
+      MYSQL_DATABASE: ${ANALYSIS_DB_NAME}
+
+  analysis-python:
+    build:
+      context: ./fio-analysis/python
+    networks:
+      - default
+    depends_on:
+      - queue
+      - analysis-db
+    stdin_open: true
+    tty: true
+    environment:
+      QUEUE_SERVER_HOST: queue
+      QUEUE_SERVER_PORT: 5672
+      QUEUE_SERVER_USERNAME: ${QUEUE_SERVER_USERNAME}
+      QUEUE_SERVER_PASSWORD: ${QUEUE_SERVER_PASSWORD}
+      ANALYSIS_DB_NAME: ${ANALYSIS_DB_NAME}
+      ANALYSIS_DB_USERNAME: ${ANALYSIS_DB_USERNAME}
+      ANALYSIS_DB_PASSWORD: ${ANALYSIS_DB_PASSWORD}
+    volumes:
+      - "./fio-analysis/python/scripts:/app/scripts"
